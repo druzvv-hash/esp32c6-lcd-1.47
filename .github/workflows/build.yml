@@ -1,12 +1,11 @@
-name: Build ESP32-C6 firmware
+name: Build R1 Terminal firmware
 
 on:
   workflow_dispatch:
   push:
     paths:
-      - "ESP32C6_LCD_Phone_Test/**"
+      - "R1_Terminal/**"
       - ".github/workflows/build.yml"
-      - ".gitignore"
 
 jobs:
   build:
@@ -19,23 +18,23 @@ jobs:
       - name: Install Arduino CLI
         uses: arduino/setup-arduino-cli@v2
 
-      - name: Install ESP32 core 3.3.2
+      - name: Install ESP32 core
         run: |
           arduino-cli config init
           arduino-cli config add board_manager.additional_urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
           arduino-cli core update-index
           arduino-cli core install esp32:esp32@3.3.2
 
-      - name: Install display library
+      - name: Install libraries
         run: |
           arduino-cli lib update-index
           arduino-cli lib install "GFX Library for Arduino@1.6.6"
+          arduino-cli lib install "ArduinoJson@7.4.3"
 
       - name: Generate build info
         run: |
           SHORT_SHA="${GITHUB_SHA::7}"
-          printf '#pragma once\n#define FW_GIT_HASH "%s"\n' "$SHORT_SHA" > ESP32C6_LCD_Phone_Test/build_info.h
-          cat ESP32C6_LCD_Phone_Test/build_info.h
+          printf '#pragma once\n#define FW_GIT_HASH "%s"\n' "$SHORT_SHA" > R1_Terminal/build_info.h
 
       - name: Compile
         run: |
@@ -44,36 +43,30 @@ jobs:
             --fqbn "esp32:esp32:esp32c6:UploadSpeed=921600,CDCOnBoot=default,CPUFreq=160,FlashFreq=80,FlashMode=qio,FlashSize=8M,PartitionScheme=huge_app,DebugLevel=none,EraseFlash=none,JTAGAdapter=default,ZigbeeMode=default" \
             --build-path "$PWD/build" \
             --export-binaries \
-            ESP32C6_LCD_Phone_Test
-
-      - name: Show binaries
-        run: |
-          find build -type f -name "*.bin" -printf "%p  %s bytes\n"
+            R1_Terminal
 
       - name: Collect firmware
         run: |
           mkdir -p artifact
 
-          cp build/ESP32C6_LCD_Phone_Test.ino.bin artifact/OTA_UPDATE.bin
-          cp build/ESP32C6_LCD_Phone_Test.ino.bin artifact/app_0x10000.bin
-          cp build/ESP32C6_LCD_Phone_Test.ino.bootloader.bin artifact/bootloader_0x0.bin
-          cp build/ESP32C6_LCD_Phone_Test.ino.partitions.bin artifact/partitions_0x8000.bin
+          cp build/R1_Terminal.ino.bin artifact/OTA_UPDATE.bin
+          cp build/R1_Terminal.ino.bin artifact/app_0x10000.bin
+          cp build/R1_Terminal.ino.bootloader.bin artifact/bootloader_0x0.bin
+          cp build/R1_Terminal.ino.partitions.bin artifact/partitions_0x8000.bin
 
           sha256sum artifact/*.bin > artifact/SHA256SUMS.txt
 
           printf '%s\n' \
-            'ESP32-C6 LCD OTA BUILD' \
-            '======================' \
+            'R1 TERMINAL v0.3' \
             '' \
-            'Normal OTA update:' \
-            'Upload OTA_UPDATE.bin at http://192.168.4.1' \
-            '' \
-            'Wi-Fi SSID: C6-OTA' \
-            'Password: C6update47' \
-            > artifact/README_OTA.txt
+            'Normal update: upload OTA_UPDATE.bin via C6-OTA.' \
+            'Short BOOT: next screen.' \
+            'BOOT 2+ sec: OTA.' \
+            'BOOT 6+ sec: forget R1 Wi-Fi and enter setup.' \
+            > artifact/README.txt
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ESP32C6-LCD-1.47-OTA
+          name: R1-Terminal-OTA
           path: artifact/

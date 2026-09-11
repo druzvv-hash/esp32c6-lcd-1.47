@@ -1,0 +1,4 @@
+build/
+artifact/
+*.zip
+.DS_Store

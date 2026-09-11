@@ -1,0 +1,5 @@
+Board facts used:
+- ST7789 172x320, offset X=34
+- LCD pins: MOSI 6, SCLK 7, CS 14, DC 15, RST 21, BL 22
+- BOOT GPIO9
+- OEM dump partition map reproduced in partitions.csv

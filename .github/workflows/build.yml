@@ -1,0 +1,71 @@
+name: Build ESP32-C6 firmware
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "ESP32C6_LCD_Phone_Test/**"
+      - ".github/workflows/build.yml"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Arduino CLI
+        uses: arduino/setup-arduino-cli@v2
+
+      - name: Install ESP32 core 3.3.2
+        run: |
+          arduino-cli config init
+          arduino-cli config add board_manager.additional_urls \
+            https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+          arduino-cli core update-index
+          arduino-cli core install esp32:esp32@3.3.2
+
+      - name: Install display library
+        run: |
+          arduino-cli lib update-index
+          arduino-cli lib install "GFX Library for Arduino@1.6.6"
+
+      - name: Compile
+        run: |
+          mkdir -p build
+          arduino-cli compile \
+            --fqbn "esp32:esp32:esp32c6:UploadSpeed=921600,CDCOnBoot=default,CPUFreq=160,FlashFreq=80,FlashMode=qio,FlashSize=4M,PartitionScheme=huge_app,DebugLevel=none,EraseFlash=none,JTAGAdapter=default,ZigbeeMode=default" \
+            --build-path "$PWD/build" \
+            --export-binaries \
+            ESP32C6_LCD_Phone_Test
+
+      - name: Show generated binaries
+        run: |
+          find build -maxdepth 2 -type f -name "*.bin" -printf "%p  %s bytes\n" || true
+          find ESP32C6_LCD_Phone_Test -maxdepth 2 -type f -name "*.bin" -printf "%p  %s bytes\n" || true
+
+      - name: Collect phone-flash files
+        run: |
+          mkdir -p artifact
+          cp build/ESP32C6_LCD_Phone_Test.ino.bin artifact/app_0x10000.bin
+          cp build/ESP32C6_LCD_Phone_Test.ino.bootloader.bin artifact/bootloader_0x0.bin
+          cp build/ESP32C6_LCD_Phone_Test.ino.partitions.bin artifact/partitions_0x8000.bin
+          cp build/ESP32C6_LCD_Phone_Test.ino.bin artifact/ESP32C6_LCD_Phone_Test.bin
+          sha256sum artifact/*.bin > artifact/SHA256SUMS.txt
+
+          cat > artifact/FLASH_FROM_PHONE.txt <<'EOF'
+          FIRST TEST - preserve OEM bootloader/partition table:
+            Address: 0x10000
+            File:    app_0x10000.bin
+
+          Do NOT erase the whole flash for the first test.
+
+          If you need to restore OEM, use your saved full OEM dump from address 0x0.
+          EOF
+
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ESP32C6-LCD-1.47-phone-flash
+          path: artifact/

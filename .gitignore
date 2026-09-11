@@ -2,3 +2,4 @@ build/
 artifact/
 *.zip
 .DS_Store
+ESP32C6_LCD_Phone_Test/build_info.h

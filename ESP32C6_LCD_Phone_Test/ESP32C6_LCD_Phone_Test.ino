@@ -44,28 +44,28 @@ void setBacklight(uint8_t percent) {
 }
 
 void drawHeader() {
-  gfx->fillScreen(BLACK);
+  gfx->fillScreen(RGB565_BLACK);
   gfx->setTextWrap(false);
 
-  gfx->setTextColor(CYAN);
+  gfx->setTextColor(RGB565_CYAN);
   gfx->setTextSize(2);
   gfx->setCursor(12, 18);
   gfx->println("ESP32-C6");
 
-  gfx->setTextColor(WHITE);
+  gfx->setTextColor(RGB565_WHITE);
   gfx->setTextSize(1);
   gfx->setCursor(12, 48);
   gfx->println("PHONE FLASH TEST");
 
-  gfx->drawFastHLine(10, 66, LCD_W - 20, DARKGREY);
+  gfx->drawFastHLine(10, 66, LCD_W - 20, RGB565_DARKGREY);
 }
 
 void drawStaticInfo() {
-  gfx->setTextColor(GREEN);
+  gfx->setTextColor(RGB565_GREEN);
   gfx->setCursor(12, 82);
   gfx->println("LCD: ST7789 OK");
 
-  gfx->setTextColor(WHITE);
+  gfx->setTextColor(RGB565_WHITE);
   gfx->setCursor(12, 104);
   gfx->printf("Chip: %s\n", ESP.getChipModel());
 
@@ -83,11 +83,11 @@ void drawStaticInfo() {
   gfx->printf("Heap: %u KB\n",
               (unsigned)(ESP.getFreeHeap() / 1024UL));
 
-  gfx->setTextColor(YELLOW);
+  gfx->setTextColor(RGB565_YELLOW);
   gfx->setCursor(12, 208);
   gfx->println("BOOT = brightness");
 
-  gfx->setTextColor(LIGHTGREY);
+  gfx->setTextColor(RGB565_LIGHTGREY);
   gfx->setCursor(12, 228);
   gfx->println("Built for:");
   gfx->setCursor(12, 244);
@@ -96,13 +96,13 @@ void drawStaticInfo() {
 
 void drawDynamic() {
   // overwrite dynamic area
-  gfx->fillRect(10, 270, LCD_W - 20, 38, BLACK);
+  gfx->fillRect(10, 270, LCD_W - 20, 38, RGB565_BLACK);
 
-  gfx->setTextColor(MAGENTA);
+  gfx->setTextColor(RGB565_MAGENTA);
   gfx->setCursor(12, 274);
   gfx->printf("UP %lus\n", millis() / 1000UL);
 
-  gfx->setTextColor(bright ? GREEN : CYAN);
+  gfx->setTextColor(bright ? RGB565_GREEN : RGB565_CYAN);
   gfx->setCursor(12, 292);
   gfx->printf("BL %s (%u%%)",
               bright ? "HIGH" : "LOW",

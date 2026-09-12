@@ -9,7 +9,7 @@
 #include <esp_ota_ops.h>
 
 #ifndef FW_VERSION
-#define FW_VERSION "v0.3.2"
+#define FW_VERSION "v0.3.3"
 #endif
 
 #if __has_include("build_info.h")
@@ -940,83 +940,69 @@ bool getJson(
   }
 
   WiFiClient client;
-  client.setTimeout(1500);
+  HTTPClient http;
 
-  if (!client.connect(R1_IP, 80)) {
+  String url =
+    String("http://") +
+    R1_IP.toString() +
+    path;
+
+  http.setConnectTimeout(800);
+  http.setTimeout(1800);
+
+  if (!http.begin(client, url)) {
     lastHttpCode = -11;
     lastContentLength = -1;
 
     strlcpy(
       lastNetError,
-      "TCP connect failed",
+      "HTTP begin failed",
       sizeof(lastNetError)
     );
 
     return false;
   }
 
-  client.print("GET ");
-  client.print(path);
+  int code = http.GET();
 
-  client.print(
-    " HTTP/1.1\r\n"
-    "Host: 192.168.4.1\r\n"
-    "Accept: application/json\r\n"
-    "Connection: close\r\n"
-    "\r\n"
-  );
+  lastHttpCode = code;
+  lastContentLength = http.getSize();
 
-  String status =
-    client.readStringUntil('\n');
-
-  status.trim();
-
-  int sp =
-    status.indexOf(' ');
-
-  lastHttpCode =
-    sp >= 0 ?
-    status.substring(sp + 1).toInt() :
-    -12;
-
-  lastContentLength = -1;
-
-  while (client.connected()) {
-    String line =
-      client.readStringUntil('\n');
-
-    line.trim();
-
-    if (line.length() == 0) {
-      break;
-    }
-
-    if (
-      line.startsWith(
-        "Content-Length:"
-      )
-    ) {
-      lastContentLength =
-        line.substring(15).toInt();
-    }
-  }
-
-  if (lastHttpCode != 200) {
+  if (code != HTTP_CODE_OK) {
     snprintf(
       lastNetError,
       sizeof(lastNetError),
       "HTTP %d",
-      lastHttpCode
+      code
     );
 
-    client.stop();
+    http.end();
+    return false;
+  }
+
+  String payload =
+    http.getString();
+
+  http.end();
+
+  lastContentLength =
+    payload.length();
+
+  if (payload.length() == 0) {
+    strlcpy(
+      lastNetError,
+      "Empty body",
+      sizeof(lastNetError)
+    );
+
     return false;
   }
 
   DeserializationError error =
-    deserializeJson(doc, client);
-
-  client.stop();
+    deserializeJson(
+      doc,
+      payload
+    );
 
   if (error) {
     snprintf(
@@ -1188,6 +1174,9 @@ bool pollLive()
   if (!getJson(path, doc)) {
     return false;
   }
+
+  r1.online = true;
+  r1.lastOkMs = millis();
 
   if (doc["lost"] | false) {
     liveCursor = 0;

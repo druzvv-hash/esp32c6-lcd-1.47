@@ -9,7 +9,7 @@
 #include <esp_ota_ops.h>
 
 #ifndef FW_VERSION
-#define FW_VERSION "v0.3.4"
+#define FW_VERSION "v0.3.5"
 #endif
 
 #if __has_include("build_info.h")
@@ -1378,8 +1378,10 @@ void loop()
     }
   }
 
+  // Use a fresh millis() value here.
+  // HTTP polling can update lastOkMs after "now" was captured.
   if (
-    now - r1.lastOkMs > 5000
+    (uint32_t)(millis() - r1.lastOkMs) > 5000U
   ) {
     r1.online = false;
   }

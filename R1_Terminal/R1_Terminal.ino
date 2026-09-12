@@ -9,7 +9,7 @@
 #include <esp_ota_ops.h>
 
 #ifndef FW_VERSION
-#define FW_VERSION "v0.3.1"
+#define FW_VERSION "v0.3.2"
 #endif
 
 #if __has_include("build_info.h")
@@ -1240,6 +1240,10 @@ bool pollLive()
 
 void handleButton()
 {
+  if (runMode == MODE_OTA) {
+    return;
+  }
+
   bool pressed =
     digitalRead(BOOT_BTN) == LOW;
 
@@ -1260,23 +1264,25 @@ void handleButton()
 
     buttonDown = false;
 
-    if (held < 1200) {
+    if (held >= 6000) {
+      clearR1Config();
+      ESP.restart();
+      return;
+    }
+
+    if (held >= 2000) {
+      startOTA();
+      return;
+    }
+
+    if (
+      held < 1200 &&
+      runMode == MODE_TERMINAL
+    ) {
       page =
         (page + 1) % 3;
 
       drawTerminal();
-
-    } else if (
-      held >= 2000 &&
-      held < 6000
-    ) {
-      startOTA();
-
-    } else if (
-      held >= 6000
-    ) {
-      clearR1Config();
-      ESP.restart();
     }
   }
 }
@@ -1322,6 +1328,10 @@ void setup()
 
 void loop()
 {
+  if (runMode != MODE_OTA) {
+    handleButton();
+  }
+
   if (
     runMode == MODE_SETUP ||
     runMode == MODE_OTA
@@ -1330,8 +1340,6 @@ void loop()
     delay(2);
     return;
   }
-
-  handleButton();
 
   if (
     runMode != MODE_TERMINAL

@@ -9,7 +9,7 @@
 #include <esp_ota_ops.h>
 
 #ifndef FW_VERSION
-#define FW_VERSION "v0.3"
+#define FW_VERSION "v0.3.1"
 #endif
 
 #if __has_include("build_info.h")
@@ -127,6 +127,11 @@ uint32_t buttonDownAt = 0;
 
 bool otaUploadOk = false;
 
+int lastHttpCode = 0;
+int lastContentLength = -1;
+char lastNetError[48] = "not tried";
+
+
 // ----------------------------------------------------
 
 void setBacklight(uint8_t percent)
@@ -197,7 +202,24 @@ void drawMain()
 
     if (WiFi.status() == WL_CONNECTED) {
       gfx->println("WiFi connected");
-      gfx->println("Waiting /api/state");
+
+      gfx->printf(
+        "IP %s\n",
+        WiFi.localIP().toString().c_str()
+      );
+
+      gfx->printf(
+        "GW %s\n",
+        WiFi.gatewayIP().toString().c_str()
+      );
+
+      gfx->printf(
+        "HTTP %d  LEN %d\n",
+        lastHttpCode,
+        lastContentLength
+      );
+
+      gfx->println(lastNetError);
     } else {
       gfx->println("Connecting to:");
       gfx->println(r1Ssid);
@@ -904,42 +926,113 @@ bool getJson(
   JsonDocument &doc
 )
 {
-  if (
-    WiFi.status() != WL_CONNECTED
-  ) {
+  if (WiFi.status() != WL_CONNECTED) {
+    lastHttpCode = -10;
+    lastContentLength = -1;
+    strlcpy(
+      lastNetError,
+      "WiFi disconnected",
+      sizeof(lastNetError)
+    );
     return false;
   }
 
   WiFiClient client;
-  HTTPClient http;
+  client.setTimeout(1500);
 
-  String url =
-    "http://192.168.4.1" + path;
-
-  if (!http.begin(client, url)) {
+  if (!client.connect(R1_IP, 80)) {
+    lastHttpCode = -11;
+    lastContentLength = -1;
+    strlcpy(
+      lastNetError,
+      "TCP connect failed",
+      sizeof(lastNetError)
+    );
     return false;
   }
 
-  http.useHTTP10(true);
-  http.setConnectTimeout(700);
-  http.setTimeout(1200);
+  client.print("GET ");
+  client.print(path);
+  client.print(
+    " HTTP/1.1\r\n"
+    "Host: 192.168.4.1\r\n"
+    "Accept: application/json\r\n"
+    "Connection: close\r\n"
+    "\r\n"
+  );
 
-  int code = http.GET();
+  String status =
+    client.readStringUntil('
+');
 
-  if (code != 200) {
-    http.end();
-    return false;
+  status.trim();
+
+  int sp =
+    status.indexOf(' ');
+
+  lastHttpCode =
+    sp >= 0 ?
+    status.substring(sp + 1).toInt() :
+    -12;
+
+  lastContentLength = -1;
+
+  while (client.connected()) {
+    String line =
+      client.readStringUntil('
+');
+
+    line.trim();
+
+    if (line.length() == 0) {
+      break;
+    }
+
+    if (
+      line.startsWith(
+        "Content-Length:"
+      )
+    ) {
+      lastContentLength =
+        line.substring(15).toInt();
+    }
   }
 
-  String payload =
-    http.getString();
+  if (lastHttpCode != 200) {
+    snprintf(
+      lastNetError,
+      sizeof(lastNetError),
+      "HTTP %d",
+      lastHttpCode
+    );
 
-  http.end();
+    client.stop();
+    return false;
+  }
 
   DeserializationError error =
-    deserializeJson(doc, payload);
+    deserializeJson(doc, client);
 
-  return !error;
+  client.stop();
+
+  if (error) {
+    snprintf(
+      lastNetError,
+      sizeof(lastNetError),
+      "JSON: %.36s",
+      error.c_str()
+    );
+
+    return false;
+  }
+
+  strlcpy(
+    lastNetError,
+    "JSON OK",
+    sizeof(lastNetError)
+  );
+
+  return true;
 }
 
 bool pollState()
@@ -951,6 +1044,11 @@ bool pollState()
   }
 
   if (!(doc["ready"] | false)) {
+    strlcpy(
+      lastNetError,
+      "state ready=false",
+      sizeof(lastNetError)
+    );
     return false;
   }
 

@@ -9,7 +9,7 @@
 #include <esp_ota_ops.h>
 
 #ifndef FW_VERSION
-#define FW_VERSION "v0.3.3"
+#define FW_VERSION "v0.3.4"
 #endif
 
 #if __has_include("build_info.h")
@@ -1020,6 +1020,10 @@ bool getJson(
     "JSON OK",
     sizeof(lastNetError)
   );
+
+  // Any valid R1 API response is our connection heartbeat.
+  r1.online = true;
+  r1.lastOkMs = millis();
 
   return true;
 }

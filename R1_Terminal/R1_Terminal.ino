@@ -929,11 +929,13 @@ bool getJson(
   if (WiFi.status() != WL_CONNECTED) {
     lastHttpCode = -10;
     lastContentLength = -1;
+
     strlcpy(
       lastNetError,
       "WiFi disconnected",
       sizeof(lastNetError)
     );
+
     return false;
   }
 
@@ -943,16 +945,19 @@ bool getJson(
   if (!client.connect(R1_IP, 80)) {
     lastHttpCode = -11;
     lastContentLength = -1;
+
     strlcpy(
       lastNetError,
       "TCP connect failed",
       sizeof(lastNetError)
     );
+
     return false;
   }
 
   client.print("GET ");
   client.print(path);
+
   client.print(
     " HTTP/1.1\r\n"
     "Host: 192.168.4.1\r\n"
@@ -962,8 +967,7 @@ bool getJson(
   );
 
   String status =
-    client.readStringUntil('
-');
+    client.readStringUntil('\n');
 
   status.trim();
 
@@ -979,8 +983,7 @@ bool getJson(
 
   while (client.connected()) {
     String line =
-      client.readStringUntil('
-');
+      client.readStringUntil('\n');
 
     line.trim();
 

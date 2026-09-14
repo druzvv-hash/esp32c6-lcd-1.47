@@ -9,7 +9,7 @@
 #include <esp_ota_ops.h>
 
 #ifndef FW_VERSION
-#define FW_VERSION "v0.3.5"
+#define FW_VERSION "v0.4.0"
 #endif
 
 #if __has_include("build_info.h")
@@ -151,372 +151,641 @@ void setBacklight(uint8_t percent)
   );
 }
 
+bool pageDirty = true;
+String uiCache[12];
+
 void clearScreen()
 {
   gfx->fillScreen(RGB565_BLACK);
   gfx->setTextWrap(false);
 }
 
-void footer(const char *text)
+void resetUiCache()
 {
-  gfx->setTextSize(1);
-  gfx->setTextColor(RGB565_DARKGREY);
-  gfx->setCursor(7, 307);
+  for (auto &v : uiCache) {
+    v = "";
+  }
+}
+
+void drawCached(
+  uint8_t slot,
+  int16_t x,
+  int16_t y,
+  int16_t w,
+  int16_t h,
+  uint8_t size,
+  uint16_t color,
+  const char *text
+)
+{
+  String v(text);
+
+  if (uiCache[slot] == v) {
+    return;
+  }
+
+  uiCache[slot] = v;
+
+  gfx->fillRect(
+    x, y, w, h,
+    RGB565_BLACK
+  );
+
+  gfx->setTextSize(size);
+  gfx->setTextColor(color);
+  gfx->setCursor(x, y);
   gfx->print(text);
 }
 
-void header(const char *title)
+void drawHeaderStatic(
+  const char *title
+)
 {
-  gfx->setTextSize(1);
+  gfx->setTextSize(2);
   gfx->setTextColor(RGB565_CYAN);
-  gfx->setCursor(7, 7);
+  gfx->setCursor(6, 4);
   gfx->print(title);
 
-  gfx->setTextColor(
-    r1.online ? RGB565_GREEN : RGB565_RED
-  );
-
-  gfx->setCursor(145, 7);
-  gfx->print(r1.online ? "ON" : "OFF");
-
   gfx->drawFastHLine(
-    6, 22, LCD_W - 12,
+    6,
+    25,
+    LCD_W - 12,
     RGB565_DARKGREY
   );
 }
 
-void drawMain()
+void drawFooter(
+  const char *text
+)
 {
-  clearScreen();
-  header("R1 TERMINAL");
+  gfx->setTextSize(1);
+  gfx->setTextColor(RGB565_LIGHTGREY);
+  gfx->setCursor(6, 307);
+  gfx->print(text);
+}
 
-  if (!r1.online) {
-    gfx->setTextColor(RGB565_RED);
-    gfx->setTextSize(2);
-    gfx->setCursor(15, 55);
-    gfx->println("NO R1 DATA");
+void updateOnline()
+{
+  drawCached(
+    0,
+    145, 6,
+    24, 12,
+    1,
+    r1.online ?
+      RGB565_GREEN :
+      RGB565_RED,
+    r1.online ? "ON" : "OFF"
+  );
+}
 
-    gfx->setTextColor(RGB565_WHITE);
-    gfx->setTextSize(1);
-    gfx->setCursor(10, 95);
+void drawMainStatic()
+{
+  drawHeaderStatic("R1 LIVE");
+  drawFooter("1/4  BOOT = next");
+}
 
-    if (WiFi.status() == WL_CONNECTED) {
-      gfx->println("WiFi connected");
-
-      gfx->printf(
-        "IP %s\n",
-        WiFi.localIP().toString().c_str()
-      );
-
-      gfx->printf(
-        "GW %s\n",
-        WiFi.gatewayIP().toString().c_str()
-      );
-
-      gfx->printf(
-        "HTTP %d  LEN %d\n",
-        lastHttpCode,
-        lastContentLength
-      );
-
-      gfx->println(lastNetError);
-    } else {
-      gfx->println("Connecting to:");
-      gfx->println(r1Ssid);
-    }
-
-    footer("BOOT: page / 2s OTA / 6s CFG");
-    return;
-  }
-
+void drawMainDynamic()
+{
   char b[40];
 
-  gfx->setTextSize(3);
-  gfx->setTextColor(RGB565_CYAN);
-  gfx->setCursor(8, 38);
-
-  if (isfinite(r1.amps)) {
-    snprintf(b, sizeof(b), "%+.2fA", r1.amps);
-    gfx->println(b);
+  if (
+    r1.online &&
+    isfinite(r1.amps)
+  ) {
+    snprintf(
+      b, sizeof(b),
+      "%+.2fA",
+      r1.amps
+    );
   } else {
-    gfx->println("--.--A");
+    strlcpy(
+      b, "--.--A",
+      sizeof(b)
+    );
   }
 
-  gfx->setTextColor(RGB565_YELLOW);
-  gfx->setCursor(8, 78);
-
-  if (isfinite(r1.volts)) {
-    snprintf(b, sizeof(b), "%.2fV", r1.volts);
-    gfx->println(b);
-  } else {
-    gfx->println("--.--V");
-  }
-
-  gfx->setTextSize(2);
-  gfx->setTextColor(RGB565_WHITE);
-  gfx->setCursor(9, 120);
-
-  if (isfinite(r1.watts)) {
-    snprintf(b, sizeof(b), "%+.1f W", r1.watts);
-    gfx->println(b);
-  } else {
-    gfx->println("--- W");
-  }
-
-  bool recording =
-    !strcmp(r1.recState, "RUNNING");
-
-  gfx->setTextColor(
-    recording ? RGB565_RED : RGB565_GREEN
+  drawCached(
+    1,
+    7, 39,
+    160, 38,
+    4,
+    RGB565_CYAN,
+    b
   );
 
-  gfx->setCursor(9, 155);
-  gfx->printf(
+  if (
+    r1.online &&
+    isfinite(r1.volts)
+  ) {
+    snprintf(
+      b, sizeof(b),
+      "%.2fV",
+      r1.volts
+    );
+  } else {
+    strlcpy(
+      b, "--.--V",
+      sizeof(b)
+    );
+  }
+
+  drawCached(
+    2,
+    7, 88,
+    160, 38,
+    4,
+    RGB565_YELLOW,
+    b
+  );
+
+  if (
+    r1.online &&
+    isfinite(r1.watts)
+  ) {
+    snprintf(
+      b, sizeof(b),
+      "%+.1fW",
+      r1.watts
+    );
+  } else {
+    strlcpy(
+      b, "---.-W",
+      sizeof(b)
+    );
+  }
+
+  drawCached(
+    3,
+    8, 139,
+    158, 30,
+    3,
+    RGB565_MAGENTA,
+    b
+  );
+
+  bool recording =
+    !strcmp(
+      r1.recState,
+      "RUNNING"
+    );
+
+  snprintf(
+    b, sizeof(b),
     "REC %s",
     recording ? "ON" : "OFF"
   );
 
-  gfx->setTextSize(1);
-  gfx->setTextColor(RGB565_WHITE);
+  drawCached(
+    4,
+    8, 184,
+    156, 24,
+    2,
+    recording ?
+      RGB565_RED :
+      RGB565_GREEN,
+    b
+  );
 
-  gfx->setCursor(9, 190);
-  gfx->printf(
-    "Rate %u / %.1f Hz",
+  snprintf(
+    b, sizeof(b),
+    "Hz %u / %.1f",
     r1.requestedHz,
     r1.measuredHz
   );
 
-  gfx->setCursor(9, 210);
-  gfx->printf(
-    "SD: %-8s",
+  drawCached(
+    5,
+    8, 225,
+    156, 24,
+    2,
+    RGB565_WHITE,
+    b
+  );
+}
+
+void drawRecordingStatic()
+{
+  drawHeaderStatic("RECORD");
+  drawFooter("2/4  BOOT = next");
+}
+
+void drawRecordingDynamic()
+{
+  char b[48];
+
+  bool recording =
+    !strcmp(
+      r1.recState,
+      "RUNNING"
+    );
+
+  drawCached(
+    1,
+    8, 39,
+    158, 30,
+    3,
+    recording ?
+      RGB565_RED :
+      RGB565_GREEN,
+    r1.recState
+  );
+
+  uint32_t total =
+    (uint32_t)r1.recSeconds;
+
+  uint32_t hours =
+    total / 3600;
+
+  uint32_t minutes =
+    (total % 3600) / 60;
+
+  uint32_t seconds =
+    total % 60;
+
+  snprintf(
+    b, sizeof(b),
+    "%02lu:%02lu:%02lu",
+    (unsigned long)hours,
+    (unsigned long)minutes,
+    (unsigned long)seconds
+  );
+
+  drawCached(
+    2,
+    8, 88,
+    158, 24,
+    2,
+    RGB565_WHITE,
+    b
+  );
+
+  snprintf(
+    b, sizeof(b),
+    "Rows %llu",
+    (unsigned long long)r1.recRows
+  );
+
+  drawCached(
+    3,
+    8, 121,
+    158, 24,
+    2,
+    RGB565_WHITE,
+    b
+  );
+
+  snprintf(
+    b, sizeof(b),
+    "Wh %.3f",
+    r1.recWh
+  );
+
+  drawCached(
+    4,
+    8, 158,
+    158, 24,
+    2,
+    RGB565_YELLOW,
+    b
+  );
+
+  snprintf(
+    b, sizeof(b),
+    "Ah %.3f",
+    r1.recAh
+  );
+
+  drawCached(
+    5,
+    8, 191,
+    158, 24,
+    2,
+    RGB565_YELLOW,
+    b
+  );
+
+  snprintf(
+    b, sizeof(b),
+    "FIFO %lu/%lu  OF %lu",
+    (unsigned long)r1.recQueued,
+    (unsigned long)r1.recHighWater,
+    (unsigned long)r1.recOverflows
+  );
+
+  drawCached(
+    6,
+    8, 236,
+    158, 12,
+    1,
+    RGB565_WHITE,
+    b
+  );
+
+  snprintf(
+    b, sizeof(b),
+    "Miss %lu  Inv %lu",
+    (unsigned long)r1.missed,
+    (unsigned long)r1.invalid
+  );
+
+  drawCached(
+    7,
+    8, 256,
+    158, 12,
+    1,
+    RGB565_WHITE,
+    b
+  );
+}
+
+void drawLoggerStatic()
+{
+  drawHeaderStatic("LOGGER");
+  drawFooter("3/4  BOOT = next");
+}
+
+void drawLoggerDynamic()
+{
+  char b[40];
+
+  snprintf(
+    b, sizeof(b),
+    "INA %s",
+    r1.ina
+  );
+
+  drawCached(
+    1,
+    8, 42,
+    158, 24,
+    2,
+    RGB565_GREEN,
+    b
+  );
+
+  snprintf(
+    b, sizeof(b),
+    "SD %s",
     r1.sd
   );
 
-  gfx->setCursor(9, 230);
-  gfx->printf(
-    "R3: %s%s",
-    r1.bleAuth ? "AUTH " : "-- ",
-    r1.bleFresh ? "LIVE" : ""
+  drawCached(
+    2,
+    8, 78,
+    158, 24,
+    2,
+    RGB565_GREEN,
+    b
   );
 
-  gfx->setCursor(9, 250);
-  gfx->printf(
-    "WiFi %d dBm",
+  snprintf(
+    b, sizeof(b),
+    "RTC %s",
+    r1.rtc
+  );
+
+  drawCached(
+    3,
+    8, 114,
+    158, 24,
+    2,
+    RGB565_GREEN,
+    b
+  );
+
+  snprintf(
+    b, sizeof(b),
+    "EEP %s",
+    r1.eeprom
+  );
+
+  drawCached(
+    4,
+    8, 150,
+    158, 24,
+    2,
+    RGB565_GREEN,
+    b
+  );
+
+  if (isfinite(r1.tempC)) {
+    snprintf(
+      b, sizeof(b),
+      "TEMP %.1fC",
+      r1.tempC
+    );
+  } else {
+    strlcpy(
+      b, "TEMP --.-C",
+      sizeof(b)
+    );
+  }
+
+  drawCached(
+    5,
+    8, 192,
+    158, 24,
+    2,
+    RGB565_WHITE,
+    b
+  );
+
+  snprintf(
+    b, sizeof(b),
+    "WiFi %ddBm",
     WiFi.RSSI()
   );
 
-  gfx->setTextColor(RGB565_LIGHTGREY);
-  gfx->setCursor(9, 274);
-  gfx->printf(
+  drawCached(
+    6,
+    8, 228,
+    158, 24,
+    2,
+    RGB565_WHITE,
+    b
+  );
+
+  snprintf(
+    b, sizeof(b),
+    "R1 up %lus",
+    (unsigned long)(
+      r1.uptimeMs / 1000
+    )
+  );
+
+  drawCached(
+    7,
+    8, 274,
+    158, 12,
+    1,
+    RGB565_LIGHTGREY,
+    b
+  );
+}
+
+void drawR3Static()
+{
+  drawHeaderStatic("R3 STATUS");
+  drawFooter("4/4  BOOT = next");
+}
+
+void drawR3Dynamic()
+{
+  char b[48];
+
+  snprintf(
+    b, sizeof(b),
+    "BLE %s",
+    r1.bleState
+  );
+
+  drawCached(
+    1,
+    8, 43,
+    158, 24,
+    2,
+    r1.bleFresh ?
+      RGB565_GREEN :
+      RGB565_YELLOW,
+    b
+  );
+
+  snprintf(
+    b, sizeof(b),
+    "AUTH %s",
+    r1.bleAuth ?
+      "YES" :
+      "NO"
+  );
+
+  drawCached(
+    2,
+    8, 83,
+    158, 24,
+    2,
+    r1.bleAuth ?
+      RGB565_GREEN :
+      RGB565_YELLOW,
+    b
+  );
+
+  snprintf(
+    b, sizeof(b),
+    "LIVE %s",
+    r1.bleFresh ?
+      "YES" :
+      "NO"
+  );
+
+  drawCached(
+    3,
+    8, 123,
+    158, 24,
+    2,
+    r1.bleFresh ?
+      RGB565_GREEN :
+      RGB565_YELLOW,
+    b
+  );
+
+  snprintf(
+    b, sizeof(b),
+    "RTC %s",
+    r1.bleRtc ?
+      "SYNC" :
+      "--"
+  );
+
+  drawCached(
+    4,
+    8, 163,
+    158, 24,
+    2,
+    r1.bleRtc ?
+      RGB565_GREEN :
+      RGB565_YELLOW,
+    b
+  );
+
+  snprintf(
+    b, sizeof(b),
+    "DROP %lu",
+    (unsigned long)
+      r1.previewDrops
+  );
+
+  drawCached(
+    5,
+    8, 207,
+    158, 24,
+    2,
+    r1.previewDrops == 0 ?
+      RGB565_GREEN :
+      RGB565_RED,
+    b
+  );
+
+  snprintf(
+    b, sizeof(b),
     "R1 %s",
     r1.firmware
   );
 
-  gfx->setCursor(9, 288);
-  gfx->printf(
+  drawCached(
+    6,
+    8, 258,
+    158, 12,
+    1,
+    RGB565_LIGHTGREY,
+    b
+  );
+
+  snprintf(
+    b, sizeof(b),
     "TERM %s %s",
     FW_VERSION,
     FW_GIT_HASH
   );
 
-  footer("1/3  BOOT = next");
-}
-
-void drawRecording()
-{
-  clearScreen();
-  header("R1 RECORDING");
-
-  bool recording =
-    !strcmp(r1.recState, "RUNNING");
-
-  gfx->setTextSize(2);
-  gfx->setTextColor(
-    recording ? RGB565_RED : RGB565_GREEN
+  drawCached(
+    7,
+    8, 276,
+    158, 12,
+    1,
+    RGB565_LIGHTGREY,
+    b
   );
-
-  gfx->setCursor(8, 36);
-  gfx->println(r1.recState);
-
-  gfx->setTextSize(1);
-  gfx->setTextColor(RGB565_WHITE);
-
-  uint64_t mb = r1.recBytes / 1048576ULL;
-
-  gfx->setCursor(8, 75);
-  gfx->printf(
-    "Time: %.1f s",
-    r1.recSeconds
-  );
-
-  gfx->setCursor(8, 96);
-
-  char rows[30];
-  snprintf(
-    rows,
-    sizeof(rows),
-    "%llu",
-    (unsigned long long)r1.recRows
-  );
-
-  gfx->printf("Rows: %s", rows);
-
-  gfx->setCursor(8, 117);
-  gfx->printf(
-    "Size: %llu MB",
-    (unsigned long long)mb
-  );
-
-  gfx->setTextColor(RGB565_YELLOW);
-
-  gfx->setCursor(8, 145);
-  gfx->printf(
-    "Energy: %.5f Wh",
-    r1.recWh
-  );
-
-  gfx->setCursor(8, 166);
-  gfx->printf(
-    "Charge: %.5f Ah",
-    r1.recAh
-  );
-
-  gfx->setTextColor(RGB565_WHITE);
-
-  gfx->setCursor(8, 198);
-  gfx->printf(
-    "FIFO: %lu / %lu",
-    (unsigned long)r1.recQueued,
-    (unsigned long)r1.recHighWater
-  );
-
-  gfx->setCursor(8, 219);
-  gfx->printf(
-    "Overflow: %lu",
-    (unsigned long)r1.recOverflows
-  );
-
-  gfx->setCursor(8, 240);
-  gfx->printf(
-    "Missed: %lu",
-    (unsigned long)r1.missed
-  );
-
-  gfx->setCursor(8, 261);
-  gfx->printf(
-    "Invalid: %lu",
-    (unsigned long)r1.invalid
-  );
-
-  footer("2/3  BOOT = next");
-}
-
-void drawHealth()
-{
-  clearScreen();
-  header("R1 STATUS");
-
-  gfx->setTextSize(1);
-
-  auto line = [](
-    int y,
-    const char *name,
-    const char *value,
-    bool good
-  ) {
-    gfx->setTextColor(RGB565_LIGHTGREY);
-    gfx->setCursor(8, y);
-    gfx->printf("%-7s", name);
-
-    gfx->setTextColor(
-      good ? RGB565_GREEN : RGB565_YELLOW
-    );
-
-    gfx->print(value);
-  };
-
-  line(
-    38, "INA",
-    r1.ina,
-    strstr(r1.ina, "PASS") ||
-    strstr(r1.ina, "READ") ||
-    strstr(r1.ina, "OK")
-  );
-
-  line(
-    60, "SD",
-    r1.sd,
-    !strcmp(r1.sd, "READ")
-  );
-
-  line(
-    82, "RTC",
-    r1.rtc,
-    strstr(r1.rtc, "PASS") ||
-    strstr(r1.rtc, "OK")
-  );
-
-  line(
-    104, "EEPROM",
-    r1.eeprom,
-    !strcmp(r1.eeprom, "READ")
-  );
-
-  gfx->setTextColor(RGB565_WHITE);
-  gfx->setCursor(8, 132);
-  gfx->printf(
-    "INA temp: %.1f C",
-    r1.tempC
-  );
-
-  gfx->setCursor(8, 154);
-  gfx->printf(
-    "WiFi: %d dBm",
-    WiFi.RSSI()
-  );
-
-  gfx->setCursor(8, 176);
-  gfx->printf(
-    "R3 BLE: %s",
-    r1.bleState
-  );
-
-  gfx->setCursor(8, 198);
-  gfx->printf(
-    "Auth/Fresh: %s/%s",
-    r1.bleAuth ? "Y" : "N",
-    r1.bleFresh ? "Y" : "N"
-  );
-
-  gfx->setCursor(8, 220);
-  gfx->printf(
-    "R3 RTC: %s",
-    r1.bleRtc ? "SYNC" : "--"
-  );
-
-  gfx->setCursor(8, 242);
-  gfx->printf(
-    "Preview drops: %lu",
-    (unsigned long)r1.previewDrops
-  );
-
-  gfx->setCursor(8, 264);
-  gfx->printf(
-    "R1 up: %lu s",
-    (unsigned long)(r1.uptimeMs / 1000)
-  );
-
-  footer("3/3  BOOT = next");
 }
 
 void drawTerminal()
 {
+  if (pageDirty) {
+    clearScreen();
+    resetUiCache();
+
+    if (page == 0) {
+      drawMainStatic();
+    } else if (page == 1) {
+      drawRecordingStatic();
+    } else if (page == 2) {
+      drawLoggerStatic();
+    } else {
+      drawR3Static();
+    }
+
+    pageDirty = false;
+  }
+
+  updateOnline();
+
   if (page == 0) {
-    drawMain();
+    drawMainDynamic();
   } else if (page == 1) {
-    drawRecording();
+    drawRecordingDynamic();
+  } else if (page == 2) {
+    drawLoggerDynamic();
   } else {
-    drawHealth();
+    drawR3Dynamic();
   }
 }
 
@@ -1273,8 +1542,9 @@ void handleButton()
       runMode == MODE_TERMINAL
     ) {
       page =
-        (page + 1) % 3;
+        (page + 1) % 4;
 
+      pageDirty = true;
       drawTerminal();
     }
   }
@@ -1387,7 +1657,7 @@ void loop()
   }
 
   if (
-    now - lastDraw >= 300
+    now - lastDraw >= 500
   ) {
     lastDraw = now;
     drawTerminal();

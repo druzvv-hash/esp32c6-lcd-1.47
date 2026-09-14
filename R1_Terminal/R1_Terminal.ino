@@ -9,7 +9,7 @@
 #include <esp_ota_ops.h>
 
 #ifndef FW_VERSION
-#define FW_VERSION "v0.4.1"
+#define FW_VERSION "v0.4.2"
 #endif
 
 #if __has_include("build_info.h")
@@ -243,22 +243,41 @@ void drawAlignedValue(
   uint8_t slot,
   int16_t y,
   float value,
-  uint16_t color
+  uint16_t color,
+  uint8_t decimals
 )
 {
   char text[20];
 
   if (isfinite(value)) {
+
+    // Avoid displaying "-0.000".
+    float zeroLimit = 0.0005f;
+
+    if (decimals == 2) {
+      zeroLimit = 0.005f;
+    } else if (decimals == 1) {
+      zeroLimit = 0.05f;
+    }
+
+    if (fabsf(value) < zeroLimit) {
+      value = 0.0f;
+    }
+
+    // No '+' sign for positive values.
     snprintf(
       text,
       sizeof(text),
-      "%+.2f",
+      "%.*f",
+      decimals,
       value
     );
+
   } else {
+
     strlcpy(
       text,
-      "--.--",
+      "--.---",
       sizeof(text)
     );
   }
@@ -271,29 +290,32 @@ void drawAlignedValue(
 
   uiCache[slot] = v;
 
-  // Fixed numeric field.
-  // Only this area is cleared, so the LCD does not flash.
   gfx->fillRect(
     0,
     y,
-    151,
-    27,
+    153,
+    28,
     RGB565_BLACK
   );
 
   gfx->setTextSize(3);
   gfx->setTextColor(color);
 
-  // Default Arduino font is 6 pixels wide per character.
-  // textSize(3) => 18 pixels per character.
+  // Default Arduino font:
+  // 6 px per character × textSize 3 = 18 px.
   //
-  // All measurements share the same right edge.
-  // Therefore + and - never shift the decimal/register.
+  // Every register shares the same RIGHT edge.
+  // With a fixed decimal count this also keeps
+  // the decimal point in the same column.
+  const int16_t charWidth = 18;
+
   const int16_t pixelWidth =
-    strlen(text) * 18;
+    strlen(text) * charWidth;
+
+  const int16_t rightEdge = 151;
 
   int16_t x =
-    149 - pixelWidth;
+    rightEdge - pixelWidth;
 
   if (x < 1) {
     x = 1;
@@ -435,7 +457,8 @@ void drawMainDynamic()
     r1.online ?
       r1.amps :
       NAN,
-    RGB565_CYAN
+    RGB565_CYAN,
+    3
   );
 
   drawAlignedValue(
@@ -444,8 +467,19 @@ void drawMainDynamic()
     r1.online ?
       r1.volts :
       NAN,
-    RGB565_YELLOW
+    RGB565_YELLOW,
+    3
   );
+
+  uint8_t powerDecimals = 3;
+
+  if (
+    r1.online &&
+    isfinite(r1.watts) &&
+    fabsf(r1.watts) >= 1000.0f
+  ) {
+    powerDecimals = 1;
+  }
 
   drawAlignedValue(
     3,
@@ -453,7 +487,8 @@ void drawMainDynamic()
     r1.online ?
       r1.watts :
       NAN,
-    RGB565_MAGENTA
+    RGB565_MAGENTA,
+    powerDecimals
   );
 
   bool recording =

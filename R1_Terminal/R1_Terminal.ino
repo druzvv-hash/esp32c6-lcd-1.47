@@ -9,7 +9,7 @@
 #include <esp_ota_ops.h>
 
 #ifndef FW_VERSION
-#define FW_VERSION "v0.4.0"
+#define FW_VERSION "v0.4.1"
 #endif
 
 #if __has_include("build_info.h")
@@ -109,6 +109,7 @@ struct R1State {
   char bleState[20] = "OFF";
 
   uint32_t uptimeMs = 0;
+  uint64_t utc = 0;
   uint32_t lastOkMs = 0;
 };
 
@@ -238,89 +239,221 @@ void updateOnline()
   );
 }
 
+void drawAlignedValue(
+  uint8_t slot,
+  int16_t y,
+  float value,
+  uint16_t color
+)
+{
+  char text[20];
+
+  if (isfinite(value)) {
+    snprintf(
+      text,
+      sizeof(text),
+      "%+.2f",
+      value
+    );
+  } else {
+    strlcpy(
+      text,
+      "--.--",
+      sizeof(text)
+    );
+  }
+
+  String v(text);
+
+  if (uiCache[slot] == v) {
+    return;
+  }
+
+  uiCache[slot] = v;
+
+  // Fixed numeric field.
+  // Only this area is cleared, so the LCD does not flash.
+  gfx->fillRect(
+    0,
+    y,
+    151,
+    27,
+    RGB565_BLACK
+  );
+
+  gfx->setTextSize(3);
+  gfx->setTextColor(color);
+
+  // Default Arduino font is 6 pixels wide per character.
+  // textSize(3) => 18 pixels per character.
+  //
+  // All measurements share the same right edge.
+  // Therefore + and - never shift the decimal/register.
+  const int16_t pixelWidth =
+    strlen(text) * 18;
+
+  int16_t x =
+    149 - pixelWidth;
+
+  if (x < 1) {
+    x = 1;
+  }
+
+  gfx->setCursor(
+    x,
+    y
+  );
+
+  gfx->print(text);
+}
+
+void formatRtc(
+  char *out,
+  size_t size
+)
+{
+  if (!r1.utc) {
+    strlcpy(
+      out,
+      "RTC --:--:--",
+      size
+    );
+
+    return;
+  }
+
+  const uint32_t daySeconds =
+    (uint32_t)(
+      r1.utc % 86400ULL
+    );
+
+  const uint32_t hh =
+    daySeconds / 3600U;
+
+  const uint32_t mm =
+    (daySeconds % 3600U) / 60U;
+
+  const uint32_t ss =
+    daySeconds % 60U;
+
+  snprintf(
+    out,
+    size,
+    "RTC %02lu:%02lu:%02lu",
+    (unsigned long)hh,
+    (unsigned long)mm,
+    (unsigned long)ss
+  );
+}
+
+void formatUptime(
+  char *out,
+  size_t size
+)
+{
+  const uint32_t total =
+    r1.uptimeMs / 1000U;
+
+  const uint32_t days =
+    total / 86400U;
+
+  const uint32_t hh =
+    (total % 86400U) / 3600U;
+
+  const uint32_t mm =
+    (total % 3600U) / 60U;
+
+  const uint32_t ss =
+    total % 60U;
+
+  if (days) {
+    snprintf(
+      out,
+      size,
+      "UP %lud %02lu:%02lu",
+      (unsigned long)days,
+      (unsigned long)hh,
+      (unsigned long)mm
+    );
+  } else {
+    snprintf(
+      out,
+      size,
+      "UP %02lu:%02lu:%02lu",
+      (unsigned long)hh,
+      (unsigned long)mm,
+      (unsigned long)ss
+    );
+  }
+}
+
 void drawMainStatic()
 {
   drawHeaderStatic("R1 LIVE");
   drawFooter("1/4  BOOT = next");
+
+  // Units use a fixed column.
+  // The numeric registers end at the same X position.
+
+  gfx->setTextSize(2);
+
+  gfx->setTextColor(
+    RGB565_CYAN
+  );
+  gfx->setCursor(
+    155,
+    45
+  );
+  gfx->print("A");
+
+  gfx->setTextColor(
+    RGB565_YELLOW
+  );
+  gfx->setCursor(
+    155,
+    85
+  );
+  gfx->print("V");
+
+  gfx->setTextColor(
+    RGB565_MAGENTA
+  );
+  gfx->setCursor(
+    155,
+    125
+  );
+  gfx->print("W");
 }
 
 void drawMainDynamic()
 {
-  char b[40];
+  char b[48];
 
-  if (
-    r1.online &&
-    isfinite(r1.amps)
-  ) {
-    snprintf(
-      b, sizeof(b),
-      "%+.2fA",
-      r1.amps
-    );
-  } else {
-    strlcpy(
-      b, "--.--A",
-      sizeof(b)
-    );
-  }
-
-  drawCached(
+  drawAlignedValue(
     1,
-    7, 39,
-    160, 38,
-    4,
-    RGB565_CYAN,
-    b
+    38,
+    r1.online ?
+      r1.amps :
+      NAN,
+    RGB565_CYAN
   );
 
-  if (
-    r1.online &&
-    isfinite(r1.volts)
-  ) {
-    snprintf(
-      b, sizeof(b),
-      "%.2fV",
-      r1.volts
-    );
-  } else {
-    strlcpy(
-      b, "--.--V",
-      sizeof(b)
-    );
-  }
-
-  drawCached(
+  drawAlignedValue(
     2,
-    7, 88,
-    160, 38,
-    4,
-    RGB565_YELLOW,
-    b
+    78,
+    r1.online ?
+      r1.volts :
+      NAN,
+    RGB565_YELLOW
   );
 
-  if (
-    r1.online &&
-    isfinite(r1.watts)
-  ) {
-    snprintf(
-      b, sizeof(b),
-      "%+.1fW",
-      r1.watts
-    );
-  } else {
-    strlcpy(
-      b, "---.-W",
-      sizeof(b)
-    );
-  }
-
-  drawCached(
+  drawAlignedValue(
     3,
-    8, 139,
-    158, 30,
-    3,
-    RGB565_MAGENTA,
-    b
+    118,
+    r1.online ?
+      r1.watts :
+      NAN,
+    RGB565_MAGENTA
   );
 
   bool recording =
@@ -330,15 +463,20 @@ void drawMainDynamic()
     );
 
   snprintf(
-    b, sizeof(b),
+    b,
+    sizeof(b),
     "REC %s",
-    recording ? "ON" : "OFF"
+    recording ?
+      "ON" :
+      "OFF"
   );
 
   drawCached(
     4,
-    8, 184,
-    156, 24,
+    8,
+    158,
+    156,
+    22,
     2,
     recording ?
       RGB565_RED :
@@ -347,7 +485,8 @@ void drawMainDynamic()
   );
 
   snprintf(
-    b, sizeof(b),
+    b,
+    sizeof(b),
     "Hz %u / %.1f",
     r1.requestedHz,
     r1.measuredHz
@@ -355,10 +494,44 @@ void drawMainDynamic()
 
   drawCached(
     5,
-    8, 225,
-    156, 24,
+    8,
+    193,
+    156,
+    22,
     2,
     RGB565_WHITE,
+    b
+  );
+
+  formatRtc(
+    b,
+    sizeof(b)
+  );
+
+  drawCached(
+    6,
+    8,
+    228,
+    158,
+    22,
+    2,
+    RGB565_CYAN,
+    b
+  );
+
+  formatUptime(
+    b,
+    sizeof(b)
+  );
+
+  drawCached(
+    7,
+    8,
+    260,
+    158,
+    22,
+    2,
+    RGB565_LIGHTGREY,
     b
   );
 }
@@ -1407,6 +1580,9 @@ bool pollState()
 
   r1.uptimeMs =
     doc["uptime_ms"] | 0;
+
+  r1.utc =
+    doc["utc"] | 0ULL;
 
   JsonObject ble =
     doc["ble"].as<JsonObject>();
